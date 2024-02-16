@@ -1,0 +1,3 @@
+masm TRABALHO.ASM
+link TRABALHO.OBJ
+cv TRABALHO.EXE aaaaaaaaaa
