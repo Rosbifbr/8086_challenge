@@ -53,8 +53,6 @@ lea bx, infile ;store destination
 
 cmp dx, 0
 jne i_present ;if si == 0
-lea dx, noparam_i
-call printf_dos
 lea dx,def_in_file
 i_present:
 call strcpy_s ;copy to infile
@@ -67,8 +65,6 @@ lea bx, outfile ;store destination
 
 cmp dx, 0
 jne o_present ;if si == 0
-lea dx, noparam_o
-call printf_dos
 lea dx,def_out_file
 o_present:
 call strcpy_s ;copy to outfile
@@ -81,21 +77,18 @@ lea bx, voltage ;store destination
 
 cmp dx, 0
 jne v_present ;if si == 0
-lea dx, noparam_v
-call printf_dos
 lea dx,def_voltage
 v_present:
 call strcpy_s ;copy to voltage
 
-;DEBUG print files to test
-; lea bx, infile
-; call printf_s
+;After copy, check for bad pointers
+cmp infile, 0
+je e_noparam_i
+cmp outfile, 0
+je e_noparam_o
+cmp voltage, 0
+je e_noparam_v
 
-; lea bx, outfile
-; call printf_s
-
-; lea bx, voltage
-; call printf_s
 
 ;Validate voltage
 lea bx, voltage
@@ -110,9 +103,38 @@ lea dx, wrongparam_v
 call printf_dos
 voltage_ok:
 
+;After parameter validation, we can finally start the file parsing
+
+
 .exit 0 ; Return to OS (err code 0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Errors, exits
+e_noparam_i:
+lea dx, noparam_i
+call printf_dos
+.exit 1 ; Return to OS (err code 1 - no param)
+
+e_noparam_o:
+lea dx, noparam_o
+call printf_dos
+.exit 1 ; Return to OS (err code 1 - no param)
+
+e_noparam_v:
+lea dx, noparam_v
+call printf_dos
+.exit 1 ; Return to OS (err code 1 - no param)
+
+e_invalid_line:
+lea dx, line_0
+call printf_dos
+;DEBUG: PRINT LINE NUMBER HERE
+lea dx, line_1
+call printf_dos
+;print rest of line
+lea bx, line_buffer
+call printf_s
+.exit 2 ; Return to OS (err code 2 - bad file)
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions (a very rich stdlib i would say)
@@ -153,29 +175,26 @@ printf_s endp
 
 
 ; get_char_f: File* (bx) -> Char (dl) Inteiro (AX) Boolean (CF)
-; Obj.: Dado um arquivo, devolve um caractere, a posicao do cursor e define CF como 0 se a leitura deu certo (diferente d getchar() do C, mais pra um getc(FILE*))
 get_char_f proc	near
 	mov ah,3fh
 	mov cx,1
-	lea dx,file_buffer
+	lea dx,file_pointer
 	int 21h
-	mov dl,file_buffer
+	mov dl,file_pointer
 	ret
 get_char_f endp
 
 ; set_char_f: File* (bx) Char (dl) -> Inteiro (ax) Boolean (CF)
-; Obj.: Dado um arquivo e um caractere, escreve esse caractere no arquivo e devolve a posicao do cursor e define CF como 0 se a leitura deu certo
 set_char_f proc	near
 	mov ah,40h
 	mov cx,1
-	mov file_buffer,dl
-	lea dx,file_buffer
+	mov file_pointer,dl
+	lea dx,file_pointer
 	int 21h
 	ret
 set_char_f endp
 
 ; fopen: String (dx) -> File* (bx) Boolean (CF)		(Passa o File* para o ax tambem, mas por algum motivo ele move pro bx)
-; Obj.: Dado o caminho para um arquivo, devolve o ponteiro desse arquivo e define CF como 0 se o processo deu certo
 fopen proc near
     mov al,0
     mov ah,3dh
@@ -185,7 +204,6 @@ fopen proc near
 fopen endp
 
 ; fcreate: String (dx) -> File* (bx) Boolean (CF)
-; Obj.: Dado o caminho para um arquivo, cria um novo arquivo com dado nome em tal caminho e devolve seu ponteiro, define CF como 0 se o processo deu certo
 fcreate proc near
     mov cx,0
     mov ah,3ch
@@ -195,7 +213,6 @@ fcreate proc near
 fcreate endp
 
 ; fclose: File* (bx) -> Boolean (CF)
-; Obj.: evitar um memory leak fechando o arquivo
 fclose proc	near
 	mov ah,3eh
 	int 21h
@@ -203,11 +220,6 @@ fclose proc	near
 fclose endp
 
 ; atoi: String (bx) -> Inteiro (ax)
-; Obj.: recebe uma string e transforma em um inteiro
-; Ex:
-; lea bx, String1 (Em que String1 é db "2024",0)
-; call atoi
-; -> devolve o numero 2024 em ax
 atoi proc near
     mov ax,0 
 atoi_2:
@@ -230,6 +242,62 @@ atoi_2:
 atoi_1:
     ret
 atoi endp
+
+; sprintf_w: Inteiro (ax) String (bx) -> void
+sprintf_w	proc	near
+;void sprintf_w(char *string, WORD n) {
+	mov		sw_n,ax
+;	k=5;
+	mov		cx,5
+;	m=10000;
+	mov		sw_m,10000
+;	f=0;
+	mov		sw_f,0
+;	do {
+sw_do:
+;		quociente = n / m : resto = n % m;	// Usar instru��o DIV
+	mov		dx,0
+	mov		ax,sw_n
+	div		sw_m
+;		if (quociente || f) {
+;			*string++ = quociente+'0'
+;			f = 1;
+;		}
+	cmp		al,0
+	jne		sw_store
+	cmp		sw_f,0
+	je		sw_continue
+sw_store:
+	add		al,'0'
+	mov		[bx],al
+	inc		bx
+	mov		sw_f,1
+sw_continue:
+;		n = resto;
+	mov		sw_n,dx
+;		m = m/10;
+	mov		dx,0
+	mov		ax,sw_m
+	mov		bp,10
+	div		bp
+	mov		sw_m,ax
+;		--k;
+	dec		cx
+;	} while(k);
+	cmp		cx,0
+	jnz		sw_do
+;	if (!f)
+;		*string++ = '0';
+	cmp		sw_f,0
+	jnz		sw_continua2
+	mov		[bx],'0'
+	inc		bx
+sw_continua2:
+;	*string = '\0';
+	mov		byte ptr[bx],0
+;}
+	ret
+sprintf_w	endp
 
 ; get parameters in format of -i <inputfile> -o <outputfile> -v <voltage>
 ; Inputs: char bh - Cmdline option to check
@@ -372,7 +440,12 @@ outfile db 64 dup(0) ;Buffer for output file
 voltage db 64 dup(0) ;Buffer for voltage
 effective_voltage dw 0 ;Parsed voltage
 
-file_buffer db 0 ;Buffer for file operations
+file_pointer db 0 ;Buffer for file operations
+line_buffer db 64 dup(0) ;Buffer for currline
 
+;Function specific
+sw_n dw 0
+sw_m dw 0
+sw_f dw 0
 
 END
