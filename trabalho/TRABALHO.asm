@@ -89,7 +89,6 @@ je e_noparam_o
 cmp voltage, 0
 je e_noparam_v
 
-
 ;Validate voltage
 lea bx, voltage
 call atoi
@@ -105,6 +104,10 @@ voltage_ok:
 
 ;After parameter validation, we can finally start the file parsing
 
+;try to open input file 
+lea dx, infile
+call fopen
+jc e_invalid_file
 
 .exit 0 ; Return to OS (err code 0)
 
@@ -133,11 +136,22 @@ call printf_dos
 ;print rest of line
 lea bx, line_buffer
 call printf_s
-.exit 2 ; Return to OS (err code 2 - bad file)
+.exit 2 ; Return to OS (err code 2 - bad line)
 
-
+;input: dx - filename
+e_invalid_file:
+lea dx, invalid_file
+call printf_dos
+lea bx, infile
+call printf_s
+.exit 3 ; Return to OS (err code 3 - bad file load)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions (a very rich stdlib i would say)
+
+;Copy line to line_buffer
+get_line proc near
+    ;TODO
+get_line endp
 
 ;Print char (Native to MSDOS)
 ;Input: DL = character to print
@@ -172,7 +186,6 @@ printf_s proc near
 ps_1:
 	ret
 printf_s endp
-
 
 ; get_char_f: File* (bx) -> Char (dl) Inteiro (AX) Boolean (CF)
 get_char_f proc	near
@@ -424,6 +437,7 @@ def_voltage db '127',0 ;default voltage
 
 ;Strings
 crlf db 13,10 ;Carriage return and line feed
+invalid_file db 'Impossivel abrir arquivo',13,10,'$'
 noparam_i db 'Opcao [-i] sem parametro',13,10,'$'
 noparam_o db 'Opcao [-o] sem parametro',13,10,'$'
 noparam_v db 'Opcao [-v] sem parametro',13,10,'$'
