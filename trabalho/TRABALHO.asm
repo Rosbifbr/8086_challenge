@@ -88,8 +88,8 @@ v_present:
 call strcpy_s ;copy to voltage
 
 ;DEBUG print files to test
-lea bx, infile
-call printf_s
+; lea bx, infile
+; call printf_s
 
 ; lea bx, outfile
 ; call printf_s
@@ -332,14 +332,15 @@ strcpy_s proc near
     mov di, bx ; Load destination string address into DI
 strcpy_s_l:
     mov al, [si] ; Load character from source into AL
-    mov [di], al ; Store character into destination
-    inc si ; Increment source pointer
-    inc di ; Increment destination pointer
     cmp al, 0 ; Check if character is null terminator
     jz strcpy_s_e ; quit if null
     cmp al, ' ' ; Check if character is space
     jz strcpy_s_e ; quit if space
-    jmp strcpy_s_l ; If not, loop
+
+    mov [di], al ; Store character into destination
+    inc si ; Increment source pointer
+    inc di ; Increment destination pointer
+    jmp strcpy_s_l ; loop after successful save
 strcpy_s_e:
     pop di
     pop si
