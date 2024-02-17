@@ -102,6 +102,13 @@ lea dx, wrongparam_v
 call printf_dos
 voltage_ok:
 
+;Define upper and lower limits
+mov effective_voltage, ax
+mov voltage_upper, al
+add voltage_upper, 10
+mov voltage_lower, al
+sub voltage_lower, 10
+
 ;After parameter validation, we can finally start the file parsing
 
 ;try to open input file 
@@ -109,9 +116,107 @@ lea dx, infile
 call fopen
 jc e_invalid_file
 
+;If input file is ok, start main loop
+main_loop:
+call get_line
+
+cmp [line_buffer], 0 ;check if we reached EOF
+je main_loop_end
+cmp [line_buffer], 'e' ;check if we reached EOF (some files end in "end" string) "end" is the ONLY valid line that starts with e
+je main_loop_end
+
+inc time_total ;increment total time (or line number)
+call parse_line ;parse line to number_1, number_2, number_3
+
+;check if line has valid entries
+cmp number_1, 0
+je e_invalid_line
+cmp number_1, 499
+jae e_invalid_line
+
+cmp number_2, 0
+je e_invalid_line
+cmp number_2, 499
+jae e_invalid_line
+
+cmp number_3, 0
+je e_invalid_line
+cmp number_3, 499
+jae e_invalid_line
+
+;classify if all 3 voltages are below 10
+cmp number_1, 10
+jae tension_not_null ;dont count time if voltage is too low
+cmp number_2, 10
+jae tension_not_null ;dont count time if voltage is too low
+cmp number_3, 10
+jae tension_not_null ;dont count time if voltage is too low
+call add_no_tension ;increment time_no_tension
+jmp main_loop ;loop
+tension_not_null:
+
+;classify time-reading
+mov ah, 0
+mov al, voltage_upper
+cmp number_3, ax
+jae main_loop ;dont count time if voltage is too high
+cmp number_2, ax
+jae main_loop ;dont count time if voltage is too high
+cmp number_1, ax
+jae main_loop ;dont count time if voltage is too high
+
+mov al, voltage_lower
+cmp number_3, ax
+jbe main_loop ;dont count time if voltage is too low
+cmp number_2, ax
+jbe main_loop ;dont count time if voltage is too low
+cmp number_1, ax
+jbe main_loop ;dont count time if voltage is too low
+
+inc time_adequate ;increment time_adequate
+
+jmp main_loop ;loop
+main_loop_end:
+
+cmp error_detected, 1
+je dont_calculate ;if we had an error, dont calculate
+
+;Perform time calculations
+;TODO
+
+;Write output to screen
+lea dx, infile_label
+call printf_dos
+lea bx, infile
+call printf_s
+
+lea dx, outfile_label
+call printf_dos
+lea bx, outfile
+call printf_s
+
+lea dx, voltage_label
+call printf_dos
+lea bx, voltage
+call printf_s
+
+;PRINT TOTAL TIME
+
+;Write output to our file
+;infile
+;outfile
+;voltage
+;total time
+;time correct voltage
+;time no voltage 
+;TODO
+
 .exit 0 ; Return to OS (err code 0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Errors, exits
+dont_calculate:
+.exit 2 ; Return to OS (err code 2 - error detected)
+
 e_noparam_i:
 lea dx, noparam_i
 call printf_dos
@@ -127,16 +232,22 @@ lea dx, noparam_v
 call printf_dos
 .exit 1 ; Return to OS (err code 1 - no param)
 
-e_invalid_line:
-lea dx, line_0
-call printf_dos
-;DEBUG: PRINT LINE NUMBER HERE
-lea dx, line_1
-call printf_dos
-;print rest of line
-lea bx, line_buffer
-call printf_s
-.exit 2 ; Return to OS (err code 2 - bad line)
+e_invalid_line proc near
+    mov error_detected,1
+    lea dx, line_0
+    call printf_dos
+    lea bx, number_conversion_buffer
+    mov ax, time_total
+    call sprintf_w ;convert to ascii
+    call printf_s ;print number
+    
+    lea dx, line_1
+    call printf_dos
+    ;print rest of line
+    lea bx, line_buffer
+    call printf_s
+    ret
+e_invalid_line endp
 
 ;input: dx - filename
 e_invalid_file:
@@ -146,12 +257,92 @@ lea bx, infile
 call printf_s
 .exit 3 ; Return to OS (err code 3 - bad file load)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions (a very rich stdlib i would say)
+;input: dx - filename
+e_get_line:
+lea dx, file_read_error
+call printf_dos
+.exit 4 ; Return to OS (err code 4 - IO error)
 
-;Copy line to line_buffer
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions (a very rich stdlib i would say. Some functions extracted from moodle content)
+
+add_no_tension proc near
+    inc time_no_tension
+    ret
+add_no_tension endp
+
+;Input - bx - file handle
+;Output - None
+;Copy curr line to line_buffer, IGNORIING SPACES AND TABS
 get_line proc near
-    ;TODO
+mov cx, 0 ;clear cx "line cursor"
+get_line_start:
+    call get_char_f ;dl = char, ax = 0 if eof, cf = 0 if ok
+    
+    jc e_get_line ;check file read error
+    cmp ax, 0 ;check if eof
+    je get_line_end
+    cmp dl, 13 ;check if cr
+    je get_line_end ;stop on cr
+    cmp dl, 10 ;check if lf
+    je get_line_end ;stop on lf
+    
+    cmp dl, 32 ;check if space
+    je get_line_start ;ignore spaces
+    cmp dl, 9 ;check if tab
+    je get_line_start ;ignore tabs
+
+    mov [line_buffer+cx], dl ;copy char to line_buffer
+    inc cx ;move to next char
+    jmp get_line_start ;loop
+get_line_end:
+    cmp cx, 0 ;check if line is empty
+    je get_line_empty_case
+    inc cx ;add one char
+    mov [line_buffer+cx], 0 ;append null terminator to end of buffer
+    ret
+get_line_empty_case:
+    mov [line_buffer], 0 ;write null terminator to buffer
+    ret
 get_line endp
+
+;Parses line_buffer 3 numbers
+;Input: bx = pointer to line
+;Output: number_1, number_2, number_3
+parse_line proc near
+    lea si, line_buffer ; Get initial pointer
+    call find_s ; Find first comma
+    cmp si, 0 ; Check if we reached end of line
+    je parse_line_error ; If we did, error
+    mov di, si ; Store pointer to first comma
+    mov [di], 0 ; Null terminate first number
+    call atoi ; Parse first number
+    mov number_1, ax ; Store first number
+
+    mov si, di ; Move pointer to first comma
+    inc si ; Move pointer to next char
+    call find_s ; Find second comma
+    cmp si, 0 ; Check if we reached end of line
+    je parse_line_error ; If we did, error
+    mov di, si ; Store pointer to second comma
+    mov [di], 0 ; Null terminate second number
+    call atoi ; Parse second number
+    mov number_2, ax ; Store second number
+
+    mov si, di ; Move pointer to second comma
+    inc si ; Move pointer to next char
+    cmp [si], 0 ; Check if we reached end of line
+    je parse_line_error ; If we did, error
+    ;call find_s ; Find third comma
+    ;mov di, si ; Store pointer to third comma
+    ;mov [di], 0 ; Null terminate third number
+    call atoi ; Parse third number
+    mov number_3, ax ; Store third number
+    ret
+parse_line_error:
+    call e_invalid_line
+    ret
+parse_line endp
 
 ;Print char (Native to MSDOS)
 ;Input: DL = character to print
@@ -184,6 +375,8 @@ printf_s proc near
 	inc bx
     jmp printf_s		
 ps_1:
+    mov dl,13;New line
+    call putchar
 	ret
 printf_s endp
 
@@ -438,6 +631,7 @@ def_voltage db '127',0 ;default voltage
 ;Strings
 crlf db 13,10 ;Carriage return and line feed
 invalid_file db 'Impossivel abrir arquivo',13,10,'$'
+file_read_error db 'Erro ao ler arquivo',13,10,'$'
 noparam_i db 'Opcao [-i] sem parametro',13,10,'$'
 noparam_o db 'Opcao [-o] sem parametro',13,10,'$'
 noparam_v db 'Opcao [-v] sem parametro',13,10,'$'
@@ -446,6 +640,16 @@ wrongparam_v db 'Parametro da opcao [-v] deve ser 127 ou 220',13,10,'$'
 line_0 db 'Linha $'
 line_1 db ' Valor inválido: $'
 
+;CMD and FILE labels
+infile_label db 'Arquivo de entrada: $'
+outfile_label db 'Arquivo de saida: $'
+voltage_label db 'Tensao selecionada: $'
+time_total_label db 'Tempo total medido: $'
+
+;File only labels
+time_adequate_label db 'Tempo com tensao adequada: $'
+time_no_tension_label db 'Tempo sem tensao: $'
+
 ;Variables
 cmd_size db 0 ;Size of command line
 cmd db 128 dup(0) ;Buffer for command line
@@ -453,9 +657,26 @@ infile db 64 dup(0) ;Buffer for input file
 outfile db 64 dup(0) ;Buffer for output file
 voltage db 64 dup(0) ;Buffer for voltage
 effective_voltage dw 0 ;Parsed voltage
+voltage_upper db 0 ;Flag for voltage upper limit
+voltage_lower db 0 ;Flag for voltage lower limit
+
+
+time_total dw 0 ;Total entries in file
+time_total_string db 9 dup(0) ;Buffer for total time
+time_adequate dw 0 ;Time of adequate voltage
+time_adequate_string db 9 dup(0) ;Buffer for time of adequate voltage
+time_no_tension dw 0 ;Time of no voltage
+time_no_tension_string db 9 dup(0) ;Buffer for time of no voltage
 
 file_pointer db 0 ;Buffer for file operations
 line_buffer db 64 dup(0) ;Buffer for currline
+number_1 dw 0 ;Buffer for number 1 of line
+number_2 dw 0 ;Buffer for number 2 of line
+number_3 dw 0 ;Buffer for number 3 of line
+
+error_detected db 0 ;Flag for error detection
+
+number_conversion_buffer db 6 dup(0) ;Buffer for number conversion
 
 ;Function specific
 sw_n dw 0
