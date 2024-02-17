@@ -19,33 +19,6 @@
 .model small
 .stack 2048
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Data
-.data
-;Defaults
-def_in_file db 'a.in',0 ;default input file
-def_out_file db 'b.out',0 ;default output file
-def_voltage db '127',0 ;default voltage
-
-;Strings
-crlf db 13,10 ;Carriage return and line feed
-noparam_i db 'Opcao [-i] sem parametro',13,10,'$'
-noparam_o db 'Opcao [-o] sem parametro',13,10,'$'
-noparam_v db 'Opcao [-v] sem parametro',13,10,'$'
-wrongparam_v db 'Parametro da opcao [-v] deve ser 127 ou 220',13,10,'$'
-;Linha <número da linha> inválido: <conteúdo da linha>
-line_0 db 'Linha $'
-line_1 db ' Valor inválido: $'
-
-;Variables
-cmd_size db 0 ;Size of command line
-cmd db 128 dup(0) ;Buffer for command line
-infile db 64 dup(0) ;Buffer for input file
-outfile db 64 dup(0) ;Buffer for output file
-voltage db 64 dup(0) ;Buffer for voltage
-effective_voltage dw 0 ;Parsed voltage
-
-file_buffer db 0 ;Buffer for file operations
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Code
 .code
 .startup
@@ -118,11 +91,11 @@ call strcpy_s ;copy to voltage
 lea bx, infile
 call printf_s
 
-lea bx, outfile
-call printf_s
+; lea bx, outfile
+; call printf_s
 
-lea bx, voltage
-call printf_s
+; lea bx, voltage
+; call printf_s
 
 ;Validate voltage
 lea bx, voltage
@@ -136,8 +109,6 @@ je voltage_ok
 lea dx, wrongparam_v
 call printf_dos
 voltage_ok:
-; Do nothing
-
 
 .exit 0 ; Return to OS (err code 0)
 
@@ -272,8 +243,11 @@ get_param_l:
     cmp si, 0
     je get_param_e ;eos reached
     inc si ;skip -
-    cmp [si], bl ;check if its our option
+    cmp [si], bh ;check if its our option
     jne get_param_l
+get_param_succ:
+    add si, 2 ;skip option and space
+    ret
 get_param_e:
     ret
 get_param endp
@@ -371,6 +345,33 @@ strcpy_s_e:
     pop si
     ret
 strcpy_s endp
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Data
+.data
+;Defaults
+def_in_file db 'a.in',0 ;default input file
+def_out_file db 'b.out',0 ;default output file
+def_voltage db '127',0 ;default voltage
+
+;Strings
+crlf db 13,10 ;Carriage return and line feed
+noparam_i db 'Opcao [-i] sem parametro',13,10,'$'
+noparam_o db 'Opcao [-o] sem parametro',13,10,'$'
+noparam_v db 'Opcao [-v] sem parametro',13,10,'$'
+wrongparam_v db 'Parametro da opcao [-v] deve ser 127 ou 220',13,10,'$'
+;Linha <número da linha> inválido: <conteúdo da linha>
+line_0 db 'Linha $'
+line_1 db ' Valor inválido: $'
+
+;Variables
+cmd_size db 0 ;Size of command line
+cmd db 128 dup(0) ;Buffer for command line
+infile db 64 dup(0) ;Buffer for input file
+outfile db 64 dup(0) ;Buffer for output file
+voltage db 64 dup(0) ;Buffer for voltage
+effective_voltage dw 0 ;Parsed voltage
+
+file_buffer db 0 ;Buffer for file operations
 
 
 END
