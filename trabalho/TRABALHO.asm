@@ -22,15 +22,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Data
 .data
 ;Defaults
-in_file db 'a.in',0 ;default input file
-out_file db 'b.out',0 ;default output file
-voltage_127 db '127',0 ;default voltage
+def_in_file db 'a.in',0 ;default input file
+def_out_file db 'b.out',0 ;default output file
+def_voltage db '127',0 ;default voltage
 
 ;Strings
-noparam_i db 'Opcao [-i] sem parametro$'
-noparam_o db 'Opcao [-o] sem parametro$'
-noparam_v db 'Opcao [-v] sem parametro$'
-wrongparam_v db 'Parametro da opção [-v] deve ser 127 ou 220$'
+crlf db 13,10 ;Carriage return and line feed
+noparam_i db 'Opcao [-i] sem parametro',13,10,'$'
+noparam_o db 'Opcao [-o] sem parametro',13,10,'$'
+noparam_v db 'Opcao [-v] sem parametro',13,10,'$'
+wrongparam_v db 'Parametro da opcao [-v] deve ser 127 ou 220',13,10,'$'
 ;Linha <número da linha> inválido: <conteúdo da linha>
 line_0 db 'Linha $'
 line_1 db ' Valor inválido: $'
@@ -39,10 +40,11 @@ line_1 db ' Valor inválido: $'
 cmd_size db 0 ;Size of command line
 cmd db 128 dup(0) ;Buffer for command line
 infile db 64 dup(0) ;Buffer for input file
-outfiles db 64 dup(0) ;Buffer for output file
+outfile db 64 dup(0) ;Buffer for output file
 voltage db 64 dup(0) ;Buffer for voltage
+effective_voltage dw 0 ;Parsed voltage
 
-FileBuffer db 0 ;Buffer for file operations
+file_buffer db 0 ;Buffer for file operations
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Code
 .code
@@ -73,15 +75,68 @@ mov cmd_size, al ; Store command size
 ;Get infile param
 mov bh, 'i'
 call get_param ;si = pointer to infile or 0
-mov dx,si ;store index
-cmp dx, 0
+mov dx,si ;store pointer
+lea bx, infile ;store destination
 
+cmp dx, 0
 jne i_present ;if si == 0
 lea dx, noparam_i
 call printf_dos
-
-
+lea dx,def_in_file
 i_present:
+call strcpy_s ;copy to infile
+
+;get outfile param
+mov bh, 'o'
+call get_param ;si = pointer to outfile or 0
+mov dx,si ;store pointer
+lea bx, outfile ;store destination
+
+cmp dx, 0
+jne o_present ;if si == 0
+lea dx, noparam_o
+call printf_dos
+lea dx,def_out_file
+o_present:
+call strcpy_s ;copy to outfile
+
+;get voltage param
+mov bh, 'v'
+call get_param ;si = pointer to voltage or 0
+mov dx,si ;store pointer
+lea bx, voltage ;store destination
+
+cmp dx, 0
+jne v_present ;if si == 0
+lea dx, noparam_v
+call printf_dos
+lea dx,def_voltage
+v_present:
+call strcpy_s ;copy to voltage
+
+;DEBUG print files to test
+lea bx, infile
+call printf_s
+
+lea bx, outfile
+call printf_s
+
+lea bx, voltage
+call printf_s
+
+;Validate voltage
+lea bx, voltage
+call atoi
+mov effective_voltage, ax
+cmp effective_voltage, 127
+je voltage_ok
+cmp effective_voltage, 220
+je voltage_ok
+
+lea dx, wrongparam_v
+call printf_dos
+voltage_ok:
+; Do nothing
 
 
 .exit 0 ; Return to OS (err code 0)
@@ -118,9 +173,7 @@ printf_s proc near
 	mov dl,[bx]
 	cmp dl,0
 	je ps_1
-	push bx
     call putchar
-	pop bx
 	inc bx
     jmp printf_s		
 ps_1:
@@ -133,9 +186,9 @@ printf_s endp
 get_char_f proc	near
 	mov ah,3fh
 	mov cx,1
-	lea dx,FileBuffer
+	lea dx,file_buffer
 	int 21h
-	mov dl,FileBuffer
+	mov dl,file_buffer
 	ret
 get_char_f endp
 
@@ -144,8 +197,8 @@ get_char_f endp
 set_char_f proc	near
 	mov ah,40h
 	mov cx,1
-	mov FileBuffer,dl
-	lea dx,FileBuffer
+	mov file_buffer,dl
+	lea dx,file_buffer
 	int 21h
 	ret
 set_char_f endp
@@ -207,7 +260,6 @@ atoi_1:
     ret
 atoi endp
 
-
 ; get parameters in format of -i <inputfile> -o <outputfile> -v <voltage>
 ; Inputs: char bh - Cmdline option to check
 ; Outputs: si=0 if not found, si=pointer to string if found (ENDS WITH ' ' or '\0')
@@ -228,6 +280,7 @@ get_param endp
 
 ;Inputs - char bl - Char to find; char* si - String to search
 ;Outputs - si - Pointer to first ocurrence of bl in si OR 0 if not found
+;Uses: si, bl, al
 find_s proc near
     mov al,[si]
 	cmp al,0
@@ -235,7 +288,7 @@ find_s proc near
     cmp al,bl
     je succ_find
 	inc si
-    jmp get_param
+    jmp find_s
 succ_find:
 	ret
 fail_find:
@@ -246,22 +299,39 @@ find_s endp
 ; get_s_len: char* bx - pointer to string
 ; Outputs: si - Length of string
 get_s_len proc near
-    xor si, si        ; Clear si register to start from 0
+    xor si, si                ; Clear si register to start from 0
 get_s_len_l:
-    cmp byte ptr [bx+si], 0 ; Compare current char to null terminator
-    je get_s_len_e    ; If zero, we've reached the end of the string
-    inc si            ; Increase si to move to next char
-    jmp get_s_len_l   ; Repeat the loop
+    cmp byte ptr [bx+si], 0  ; Compare current char to null terminator
+    je get_s_len_e            ; If zero, we've reached the end of the string
+    inc si                    ; Increase si to move to next char    
+    jmp get_s_len_l           ; Repeat the loop
 get_s_len_e:
-    ret               ; Return with si holding the length of the string
+    ret                       ; Return with si holding the length of the string
 get_s_len endp
+
+; get_s_len: char* bx - pointer to string ended with \0 or space
+; Outputs: si - Length of string
+get_s_len_s proc near
+    xor si, si                ; Clear si register to start from 0
+get_s_len_l_s:
+    cmp byte ptr [bx+si], 0  ; Compare current char to null terminator
+    je get_s_len_e_s            ; If zero, we've reached the end of the string
+    cmp byte ptr [bx+si], ' ' ; Compare current char to space
+    je get_s_len_e_s            ; If space, we've reached the end of the string
+    inc si                    ; Increase si to move to next char    
+    jmp get_s_len_l_s           ; Repeat the loop
+get_s_len_e_s:
+    ret                       ; Return with si holding the length of the string
+get_s_len_s endp
 
 ;strcpy: char* dx - Source; char* bx - Destination
 ;Copies dx to bx
 ;Outputs: nothing
+;Uses si, di, al
 strcpy proc near
     push si
     push di
+
     mov si, dx ; Load source string address into SI
     mov di, bx ; Load destination string address into DI
 strcpy_l:
@@ -269,8 +339,9 @@ strcpy_l:
     mov [di], al ; Store character into destination
     inc si ; Increment source pointer
     inc di ; Increment destination pointer
-    test al, al ; Check if character is null terminator
+    cmp al, 0 ; Check if character is null terminator
     jnz strcpy_l ; If not, loop
+
     pop di
     pop si
     ret
@@ -290,10 +361,12 @@ strcpy_s_l:
     mov [di], al ; Store character into destination
     inc si ; Increment source pointer
     inc di ; Increment destination pointer
-    test al, al ; Check if character is null terminator
-    jnz strcpy_s_l ; If not, loop
+    cmp al, 0 ; Check if character is null terminator
+    jz strcpy_s_e ; quit if null
     cmp al, ' ' ; Check if character is space
-    jnz strcpy_s_l ; If not, loop
+    jz strcpy_s_e ; quit if space
+    jmp strcpy_s_l ; If not, loop
+strcpy_s_e:
     pop di
     pop si
     ret
