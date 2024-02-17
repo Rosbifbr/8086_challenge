@@ -15,6 +15,11 @@
 ; 123, 124, 128
 ; (Whitespace must be ignored)
 
+;TODO
+; Parse lines correctly
+; Convert second integers to mm:ss format
+; Write output to file
+
 ; Model and stack config
 .model small
 .stack 2048
@@ -125,7 +130,6 @@ je main_loop_end
 cmp [line_buffer], 'e' ;check if we reached EOF (some files end in "end" string) "end" is the ONLY valid line that starts with e
 je main_loop_end
 
-inc time_total ;increment total time (or line number)
 call parse_line ;parse line to number_1, number_2, number_3
 
 ;check if line has valid entries
@@ -143,6 +147,8 @@ cmp number_3, 0
 je e_invalid_line
 cmp number_3, 499
 jae e_invalid_line
+
+inc time_total ;increment total time (or line number)
 
 ;classify if all 3 voltages are below 10
 cmp number_1, 10
@@ -200,7 +206,30 @@ call printf_dos
 lea bx, voltage
 call printf_s
 
-;PRINT TOTAL TIME
+;DEBUG
+lea dx, time_total_label
+call printf_dos
+mov ax, time_total
+lea bx, time_total_string
+call format_time
+lea bx, time_total_string
+call printf_s
+
+lea dx, time_adequate_label
+call printf_dos
+mov ax, time_adequate
+lea bx, time_adequate_string
+call format_time
+lea bx, time_adequate_string
+call printf_s
+
+lea dx, time_no_tension_label
+call printf_dos
+mov ax, time_no_tension
+lea bx, time_no_tension_string
+call format_time
+lea bx, time_no_tension_string
+call printf_s
 
 ;Write output to our file
 ;infile
@@ -265,6 +294,38 @@ call printf_dos
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions (a very rich stdlib i would say. Some functions extracted from moodle content)
+
+;Input - Ax - time in seconds, Bx - pointer to buffer
+;Output - Bx - buffer with time in mm:ss format
+format_time proc near
+    mov cx, 60 ;minutes
+    div cx ;ax = minutes(res), dx = seconds(remainder)
+
+    mov [bx+5], 0 ;null terminator
+    mov [bx+4], '0' ;Zero
+    mov [bx+3], '0' ;Zero
+    mov [bx+2], ':' ;Sep
+    mov [bx+1], '0' ;Zero
+    mov [bx], '0' ;Zero
+
+    ;Store our results for later use
+    ;push ax ;mins
+    push dx ;secs
+
+    mov dx, ax ;minutes
+    add dx, 3 ;pointer to second string
+
+    cmp ax, 10 ;Check if we need to consider a leading zero
+    jge ft_1
+    inc bx ;move to next char
+    ft_1:
+    call sprintf_w ;convert and write to bx
+
+    mov bx, dx ;move to second string pointer
+    pop ax ;get seconds
+    call sprintf_w ;convert and write to original bx + 3
+    ret
+format_time endp
 
 add_no_tension proc near
     inc time_no_tension
@@ -376,6 +437,8 @@ printf_s proc near
     jmp printf_s		
 ps_1:
     mov dl,13;New line
+    call putchar
+    mov dl,10;Carriage return
     call putchar
 	ret
 printf_s endp

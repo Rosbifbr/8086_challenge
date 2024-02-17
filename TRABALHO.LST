@@ -1,0 +1,212 @@
+Microsoft (R) Macro Assembler Version 6.11		    02/16/24 14:55:20
+TRABALHO.ASMaaa						     Page 1 - 1
+
+
+				; Name: Rodrigo Ourique
+				; UFRGS Card: 00581169
+				; Program: Tension File Parser
+				; Target Architecture: Intel 8086
+				; Target Assembler: MASM 6.11
+				; Target Operating System: MS-DOS 
+				
+				; Description:
+				; Option [-i] (file in)
+				; Option [-o] (file out)
+				; Option [-v] (voltage - 127 or 220)
+				; File lines must be like: 
+				; 120,130,127
+				; 121, 119 , 125
+				; 123, 124, 128
+				; (Whitespace must be ignored)
+				
+				; Model and stack config
+				.model small
+				.stack 2048
+				
+				;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Data
+ 0000				.data
+				
+				;Strings
+ 0000 4F 70 63 61 6F 20		noparam_i db 'Opcao [-i] sem parametro$'
+       5B 2D 69 5D 20 73
+       65 6D 20 70 61 72
+       61 6D 65 74 72 6F
+       24
+ 0019 4F 70 63 61 6F 20		noparam_o db 'Opcao [-o] sem parametro$'
+       5B 2D 6F 5D 20 73
+       65 6D 20 70 61 72
+       61 6D 65 74 72 6F
+       24
+ 0032 4F 70 63 61 6F 20		noparam_v db 'Opcao [-v] sem parametro$'
+       5B 2D 76 5D 20 73
+       65 6D 20 70 61 72
+       61 6D 65 74 72 6F
+       24
+ 004B 50 61 72 61 6D 65		wrongparam_v db 'Parametro da opção [-v] deve ser 127 ou 220$'
+       74 72 6F 20 64 61
+       20 6F 70 C3 A7 C3
+       A3 6F 20 5B 2D 76
+       5D 20 64 65 76 65
+       20 73 65 72 20 31
+       32 37 20 6F 75 20
+       32 32 30 24
+				;Linha <número da linha> inválido: <conteúdo da linha>
+ 0079 4C 69 6E 68 61 20		line_0 db 'Linha $'
+       24
+ 0080 20 56 61 6C 6F 72		line_1 db ' Valor inválido: $'
+       20 69 6E 76 C3 A1
+       6C 69 64 6F 3A 20
+       24
+				
+				;Variables
+ 0093 0000			cmd_size dw 0 ;Size of command line
+ 0095  0080 [			cmd db 128 dup(0) ;Buffer for command line
+        00
+       ]
+ 0115  0040 [			infile db 64 dup(0) ;Buffer for input file
+        00
+       ]
+ 0155  0040 [			outfiles db 64 dup(0) ;Buffer for output file
+        00
+       ]
+ 0195  0040 [			voltage db 64 dup(0) ;Buffer for voltage
+        00
+       ]
+				
+				;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Code
+ 0000				.code
+				.startup
+				
+				;PSP argument collection. Provided by the assignment
+ 0017  1E			push ds ; Salva as informações de segmentos
+ 0018  06			push es
+				
+ 0019  8C D8			mov ax,ds; Troca DS com ES para poder usa o REP MOVSB
+ 001B  8C C3			mov bx,es
+ 001D  8E DB			mov ds,bx
+ 001F  8E C0			mov es, ax
+ 0021  BE 0080			mov si,80h; Obtém o tamanho do string da linha de comando e coloca em CX
+ 0024  B5 00			mov ch,0
+ 0026  8A 0C			mov cl,[si]
+ 0028  8B C1			mov ax,cx; Salva o tamanho do string em AX, para uso futuro
+ 002A  A3 0093 R		mov cmd_size,ax ;Guarda em cmd_size
+ 002D  BE 0081			mov si,81h; Inicializa o ponteiro de origem
+ 0030  8D 3E 0095 R		lea di,cmd ; Inicializa o ponteiro de destino
+ 0034  F3/ A4			rep movsb
+				
+ 0036  07			pop es ; retorna as informações dos registradores de segmentos
+ 0037  1F			pop ds
+				
+				;;Check arguments
+				
+				;;Print cmd char by char
+ 0038  8D 1E 0095 R		lea bx, cmd
+				mov cl, cmd_size
+TRABALHO.ASMaaa(69): error A2070: invalid instruction operands
+ 003C				printcmd:
+ 003C  8A 07			mov al, [bx]
+ 003E  E8 0038			call printchar
+ 0041  43			inc bx
+ 0042  E2 F8			loop printcmd
+				
+				
+				
+				.exit 0 ; Return to OS (err code 0)
+				
+				;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Errors
+ 0049				e_noparami:
+ 0049  8D 16 0000 R		lea dx, noparam_i
+ 004D  E8 002E			call printstring
+				.exit 1
+				
+ 0055				e_noparamo:
+ 0055  8D 16 0019 R		lea dx, noparam_o
+ 0059  E8 0022			call printstring
+				.exit 2
+				
+ 0061				e_noparamv:
+ 0061  8D 16 0032 R		lea dx, noparam_v
+ 0065  E8 0016			call printstring
+				.exit 3
+				
+ 006D				e_wrongparamv:
+ 006D  8D 16 004B R		lea dx, wrongparam_v
+ 0071  E8 000A			call printstring
+				.exit 4
+				
+				;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Functions
+				
+				;Input: AL = character to print
+				;Output: None
+ 0079				printchar proc near
+ 0079  B4 02			    mov ah,02h
+ 007B  CD 21			    int 21h
+ 007D  C3			    ret
+ 007E				printchar endp
+				
+				;Input: DS:DX = pointer to string to print (terminated with $)
+				;Output: None
+ 007E				printstring proc near
+ 007E  B4 09			    mov ah,09h
+ 0080  CD 21			    int 21h
+ 0082  C3			    ret
+ 0083				printstring endp
+				
+				END
+Microsoft (R) Macro Assembler Version 6.11		    02/16/24 14:55:20
+TRABALHO.ASMaaa						     Symbols 2 - 1
+
+
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	16 Bit	 01D5	  Word	  Public  'DATA'	
+STACK  . . . . . . . . . . . . .	16 Bit	 0800	  Para	  Stack	  'STACK'	 
+_TEXT  . . . . . . . . . . . . .	16 Bit	 0083	  Word	  Public  'CODE'	
+
+
+Procedures,  parameters and locals:
+
+                N a m e                 Type     Value    Attr
+
+printchar  . . . . . . . . . . .	P Near	 0079	  _TEXT	Length= 0005 Private
+printstring  . . . . . . . . . .	P Near	 007E	  _TEXT	Length= 0005 Private
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0000h	 
+@Model . . . . . . . . . . . . .	Number	 0002h	 
+@Startup . . . . . . . . . . . .	L Near	 0000	  _TEXT	
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+cmd_size . . . . . . . . . . . .	Word	 0093	  _DATA	
+cmd  . . . . . . . . . . . . . .	Byte	 0095	  _DATA	
+e_noparami . . . . . . . . . . .	L Near	 0049	  _TEXT	
+e_noparamo . . . . . . . . . . .	L Near	 0055	  _TEXT	
+e_noparamv . . . . . . . . . . .	L Near	 0061	  _TEXT	
+e_wrongparamv  . . . . . . . . .	L Near	 006D	  _TEXT	
+infile . . . . . . . . . . . . .	Byte	 0115	  _DATA	
+line_0 . . . . . . . . . . . . .	Byte	 0079	  _DATA	
+line_1 . . . . . . . . . . . . .	Byte	 0080	  _DATA	
+noparam_i  . . . . . . . . . . .	Byte	 0000	  _DATA	
+noparam_o  . . . . . . . . . . .	Byte	 0019	  _DATA	
+noparam_v  . . . . . . . . . . .	Byte	 0032	  _DATA	
+outfiles . . . . . . . . . . . .	Byte	 0155	  _DATA	
+printcmd . . . . . . . . . . . .	L Near	 003C	  _TEXT	
+voltage  . . . . . . . . . . . .	Byte	 0195	  _DATA	
+wrongparam_v . . . . . . . . . .	Byte	 004B	  _DATA	
+
+	   0 Warnings
+	   1 Errors
